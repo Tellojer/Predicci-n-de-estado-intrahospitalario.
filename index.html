@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Estimación del riesgo de muerte intrahospitalaria y de la fecha probable de fallecimiento a partir del estado clínico al día 3 (estudio SUPPORT).">
+<title>Pronóstico al Día 3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap">
+<style>
+/* Layout: hoja clínica de dos columnas — captura a la izquierda, lectura del pronóstico fija a la derecha. */
+:root {
+  --bg: #F3F5F2;
+  --surface: #FFFFFF;
+  --ink: #1A2320;
+  --muted: #5B6863;
+  --line: #D6DCD8;
+  --accent: #2C5B87;
+  --accent-soft: #DCE6F0;
+  --r1: #3E7D52; --r2: #7E9A3F; --r3: #B9851E; --r4: #C9612C; --r5: #A8302B;
+  --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111614; --surface: #19201D; --ink: #E4EAE6; --muted: #9AA7A1; --line: #2D3632;
+    --accent: #8DB5DE; --accent-soft: #24384B;
+    --r1: #79BF8B; --r2: #B4C76E; --r3: #E2B45A; --r4: #EC8A5A; --r5: #EF7B73;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111614; --surface: #19201D; --ink: #E4EAE6; --muted: #9AA7A1; --line: #2D3632;
+  --accent: #8DB5DE; --accent-soft: #24384B;
+  --r1: #79BF8B; --r2: #B4C76E; --r3: #E2B45A; --r4: #EC8A5A; --r5: #EF7B73;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.wrap { padding-block: 28px 18px; display: grid; gap: 6px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0; font-weight: 600; }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 4vw, 40px); line-height: 1.1; margin: 0; text-wrap: balance; }
+.lead { margin: 0; color: var(--muted); max-width: 70ch; }
+.aviso { display: inline-flex; width: fit-content; gap: 6px; align-items: center; font-size: 13px; color: var(--ink); background: var(--accent-soft); border-radius: 999px; padding: 3px 12px; }
+
+main.wrap { display: grid; gap: 20px; padding-block: 8px 40px; grid-template-columns: minmax(0, 1fr); grid-template-areas: "res" "cap"; }
+@media (min-width: 900px) {
+  main.wrap { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); grid-template-areas: "cap res"; align-items: start; }
+  #resultados { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); }
+}
+#captura { grid-area: cap; display: grid; gap: 16px; min-width: 0; }
+#resultados { grid-area: res; display: grid; gap: 14px; min-width: 0; }
+
+.bloque { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 12px; min-width: 0; }
+.bloque h2 { font-family: var(--font-display); font-weight: 600; font-size: 19px; margin: 0; }
+.bloque .nota { margin: 0; font-size: 13px; color: var(--muted); }
+.bloque.destacado { border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
+
+.escenarios { display: flex; flex-wrap: wrap; gap: 8px; }
+.escenarios button { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.escenarios button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.escenarios button:hover { border-color: var(--accent); }
+
+.campos { display: grid; gap: 12px 16px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.campo { display: grid; gap: 4px; min-width: 0; }
+.campo label.titulo { font-size: 13px; font-weight: 600; }
+.campo .ayuda { font-size: 12px; color: var(--muted); }
+.campo.ancho { grid-column: 1 / -1; }
+.fila { display: flex; gap: 8px; align-items: center; min-width: 0; }
+input[type="number"], input[type="date"], select {
+  font: inherit; font-family: var(--font-data); font-size: 14px; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; width: 100%; min-width: 0;
+}
+select { font-family: var(--font-body); }
+input[type="number"] { max-width: 110px; }
+.unidad { font-size: 12px; color: var(--muted); white-space: nowrap; }
+input[type="range"] { width: 100%; accent-color: var(--accent); min-width: 0; }
+.chk { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); white-space: nowrap; cursor: pointer; }
+.chk input { accent-color: var(--accent); }
+input:disabled { opacity: 0.45; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.tarjeta { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 10px; min-width: 0; }
+.cifra { font-family: var(--font-data); font-weight: 500; font-size: 52px; line-height: 1; margin: 0; font-variant-numeric: tabular-nums; }
+.cifra small { font-size: 22px; color: var(--muted); }
+.escala { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.escala span { height: 10px; border-radius: 3px; opacity: 0.28; }
+.escala span.activo { opacity: 1; outline: 2px solid var(--ink); outline-offset: 1px; }
+.escala-etq { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; font-size: 11px; color: var(--muted); text-align: center; }
+.texto { margin: 0; font-size: 14px; }
+.texto strong { font-weight: 600; }
+.fecha { font-family: var(--font-display); font-weight: 600; font-size: 30px; line-height: 1.15; margin: 0; text-wrap: balance; }
+.sub { margin: 0; font-size: 14px; color: var(--muted); }
+
+svg.curva { width: 100%; height: auto; display: block; }
+svg .eje { stroke: var(--line); stroke-width: 1; }
+svg .rejilla { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
+svg .linea { stroke: var(--accent); stroke-width: 2.5; fill: none; }
+svg .area { fill: var(--accent-soft); }
+svg .punto { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+svg .marca { stroke: var(--r5); stroke-width: 1.5; stroke-dasharray: 4 3; }
+svg text { fill: var(--muted); font-family: var(--font-data); font-size: 10px; }
+svg text.fuerte { fill: var(--ink); }
+
+.tabla-v { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tabla-v td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+.tabla-v td.pct { font-family: var(--font-data); text-align: right; width: 52px; font-variant-numeric: tabular-nums; }
+.tabla-v td.fechas { color: var(--muted); font-size: 12px; }
+.tabla-v tr.max td:first-child { font-weight: 600; }
+.barra { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; min-width: 60px; }
+.barra i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+tr.max .barra i { background: var(--r5); }
+
+.factores { display: grid; gap: 6px; }
+.factor { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 52px; gap: 8px; align-items: center; font-size: 13px; }
+.factor .div { position: relative; height: 10px; background: var(--bg); border-radius: 3px; }
+.factor .div::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+.factor .div i { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.factor .val { font-family: var(--font-data); text-align: right; font-variant-numeric: tabular-nums; }
+details { font-size: 13px; color: var(--muted); }
+details summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+details p { margin: 8px 0 0; max-width: 75ch; }
+@media (prefers-reduced-motion: no-preference) { .barra i, .factor .div i { transition: width 0.25s ease, left 0.25s ease; } }
+</style>
+</head>
+<body>
+
+
+<header class="wrap">
+  <p class="eyebrow">Mortalidad en pacientes gravemente enfermos · estudio SUPPORT</p>
+  <h1>Pronóstico al Día 3</h1>
+  <p class="lead">Ingresa el estado clínico de un paciente al tercer día de hospitalización. El modelo final del reporte, una regresión logística, estima su riesgo de morir durante la hospitalización y el horizonte de tiempo en el que es más probable el fallecimiento.</p>
+  <span class="aviso">Herramienta académica. No usar para decisiones clínicas.</span>
+</header>
+
+<main class="wrap">
+  <section id="resultados" aria-live="polite">
+    <div class="tarjeta">
+      <p class="eyebrow">Riesgo de muerte durante la hospitalización</p>
+      <p class="cifra" id="pHosp">—</p>
+      <div class="escala" id="escala"></div>
+      <div class="escala-etq"><span>Muy bajo</span><span>Bajo</span><span>Medio</span><span>Alto</span><span>Muy alto</span></div>
+      <p class="texto" id="grupoTexto"></p>
+    </div>
+    <div class="tarjeta">
+      <p class="eyebrow" id="fechaEtiqueta">Fecha estimada</p>
+      <p class="fecha" id="fechaPrincipal">—</p>
+      <p class="sub" id="fechaSub"></p>
+      <svg class="curva" id="curva" viewBox="0 0 340 168" role="img" aria-label="Riesgo acumulado de fallecer durante el primer año"></svg>
+      <table class="tabla-v" id="tablaVentanas"></table>
+    </div>
+    <div class="tarjeta">
+      <p class="eyebrow">Qué mueve el riesgo de este paciente</p>
+      <p class="sub">Factor por el que cada variable multiplica los momios de morir en el hospital, comparado con el paciente promedio del estudio.</p>
+      <div class="factores" id="factores"></div>
+    </div>
+    <details>
+      <summary>Cómo se calcula</summary>
+      <p>Las dos estimaciones provienen de los modelos finales del reporte: una regresión logística para la mortalidad intrahospitalaria (AUC de 0.872 en el conjunto de prueba) y una regresión logística multinomial para la ventana temporal (AUC macro de 0.746). Los modelos se entrenaron con ponderación de clases, que infla las probabilidades; aquí se corrigen a la frecuencia real de cada desenlace en el entrenamiento.</p>
+      <p>El grupo de riesgo y su mortalidad observada provienen de los 1,821 pacientes del conjunto de prueba. La fecha estimada es el día en que el riesgo acumulado de fallecer alcanza 50 %, suponiendo que dentro de cada ventana el riesgo se reparte de forma uniforme. Los datos provienen de hospitales de Estados Unidos entre 1989 y 1994.</p>
+    </details>
+  </section>
+
+  <form id="captura" autocomplete="off" novalidate>
+    <div class="bloque">
+      <h2>Escenario</h2>
+      <p class="nota">Pacientes de ejemplo ficticios, construidos para mostrar distintos niveles de riesgo. Después puedes modificar cualquier valor.</p>
+      <div class="escenarios" id="escenarios"></div>
+      <div class="campos">
+        <div class="campo">
+          <label class="titulo" for="fechaIngreso">Fecha de ingreso al estudio</label>
+          <input type="date" id="fechaIngreso">
+          <span class="ayuda">Las ventanas de tiempo se cuentan desde esta fecha.</span>
+        </div>
+      </div>
+    </div>
+    <div id="grupos"></div>
+  </form>
+</main>
+
+<script>
+const MODELO = {"preproc_binario":{"normales":{"alb":{"imputar":3.5,"media":3.15232,"escala":0.693042},"pafi":{"imputar":333.3,"media":263.056,"escala":103.412},"bili":{"imputar":1.01,"media":2.11482,"escala":4.58711},"crea":{"imputar":1.01,"media":1.76883,"escala":1.67228},"bun":{"imputar":6.51,"media":20.0014,"escala":23.3273},"wblc":{"imputar":9.0,"media":12.2478,"escala":9.17049},"urine":{"imputar":2502.0,"media":2356.41,"escala":1001.6}},"mediana":{"age":{"imputar":64.646,"media":62.528,"escala":15.7247},"num.co":{"imputar":2.0,"media":1.87355,"escala":1.34061},"edu":{"imputar":12.0,"media":11.7934,"escala":3.13492},"scoma":{"imputar":0.0,"media":11.9869,"escala":24.579},"sps":{"imputar":24.0,"media":25.608,"escala":9.92752},"aps":{"imputar":35.0,"media":37.7494,"escala":19.9927},"hday":{"imputar":1.0,"media":4.38351,"escala":9.04512},"meanbp":{"imputar":78.0,"media":84.6125,"escala":27.7546},"hrt":{"imputar":100.0,"media":97.2106,"escala":31.5433},"resp":{"imputar":24.0,"media":23.3691,"escala":9.5776},"temp":{"imputar":36.6953,"media":37.1042,"escala":1.24907},"sod":{"imputar":137.0,"media":137.536,"escala":6.04774},"ph":{"imputar":7.41992,"media":7.41663,"escala":0.0694968},"glucose":{"imputar":133.0,"media":146.387,"escala":63.3402},"adlsc":{"imputar":1.0,"media":1.89643,"escala":2.01694}},"ordinales":{"income":{"categorias":["under $11k","$11-$25k","$25-$50k",">$50k"],"imputar":1.0,"media":0.958771,"escala":0.854665},"ca":{"categorias":["no","yes","metastatic"],"imputar":0.0,"media":0.545932,"escala":0.808244}},"nominales":{"sex":{"imputar":"male","categorias":["female","male"]},"race":{"imputar":"white","categorias":["asian","black","hispanic","other","white"]},"dzgroup":{"imputar":"ARF/MOSF w/Sepsis","categorias":["ARF/MOSF w/Sepsis","CHF","COPD","Cirrhosis","Colon Cancer","Coma","Lung Cancer","MOSF w/Malig"]}},"binarias":["diabetes","dementia","dnr_previo"],"indicadores":["wblc","pafi","ph","edu","income"],"columnas":["alb","pafi","bili","crea","bun","wblc","urine","age","num.co","edu","scoma","sps","aps","hday","meanbp","hrt","resp","temp","sod","ph","glucose","adlsc","income","ca","sex_male","race_asian","race_black","race_hispanic","race_other","race_white","dzgroup_ARF/MOSF w/Sepsis","dzgroup_CHF","dzgroup_COPD","dzgroup_Cirrhosis","dzgroup_Colon Cancer","dzgroup_Coma","dzgroup_Lung Cancer","dzgroup_MOSF w/Malig","diabetes","dementia","dnr_previo","missingindicator_wblc","missingindicator_pafi","missingindicator_ph","missingindicator_edu","missingindicator_income"]},"preproc_ventana":{"normales":{"alb":{"imputar":3.5,"media":3.15232,"escala":0.693042},"pafi":{"imputar":333.3,"media":263.056,"escala":103.412},"bili":{"imputar":1.01,"media":2.11482,"escala":4.58711},"crea":{"imputar":1.01,"media":1.76883,"escala":1.67228},"bun":{"imputar":6.51,"media":20.0014,"escala":23.3273},"wblc":{"imputar":9.0,"media":12.2478,"escala":9.17049},"urine":{"imputar":2502.0,"media":2356.41,"escala":1001.6}},"mediana":{"age":{"imputar":64.646,"media":62.528,"escala":15.7247},"num.co":{"imputar":2.0,"media":1.87355,"escala":1.34061},"edu":{"imputar":12.0,"media":11.7934,"escala":3.13492},"scoma":{"imputar":0.0,"media":11.9869,"escala":24.579},"sps":{"imputar":24.0,"media":25.608,"escala":9.92752},"aps":{"imputar":35.0,"media":37.7494,"escala":19.9927},"hday":{"imputar":1.0,"media":4.38351,"escala":9.04512},"meanbp":{"imputar":78.0,"media":84.6125,"escala":27.7546},"hrt":{"imputar":100.0,"media":97.2106,"escala":31.5433},"resp":{"imputar":24.0,"media":23.3691,"escala":9.5776},"temp":{"imputar":36.6953,"media":37.1042,"escala":1.24907},"sod":{"imputar":137.0,"media":137.536,"escala":6.04774},"ph":{"imputar":7.41992,"media":7.41663,"escala":0.0694968},"glucose":{"imputar":133.0,"media":146.387,"escala":63.3402},"adlsc":{"imputar":1.0,"media":1.89643,"escala":2.01694}},"ordinales":{"income":{"categorias":["under $11k","$11-$25k","$25-$50k",">$50k"],"imputar":1.0,"media":0.958771,"escala":0.854665},"ca":{"categorias":["no","yes","metastatic"],"imputar":0.0,"media":0.545932,"escala":0.808244}},"nominales":{"sex":{"imputar":"male","categorias":["female","male"]},"race":{"imputar":"white","categorias":["asian","black","hispanic","other","white"]},"dzgroup":{"imputar":"ARF/MOSF w/Sepsis","categorias":["ARF/MOSF w/Sepsis","CHF","COPD","Cirrhosis","Colon Cancer","Coma","Lung Cancer","MOSF w/Malig"]}},"binarias":["diabetes","dementia","dnr_previo"],"indicadores":["wblc","pafi","ph","edu","income"],"columnas":["alb","pafi","bili","crea","bun","wblc","urine","age","num.co","edu","scoma","sps","aps","hday","meanbp","hrt","resp","temp","sod","ph","glucose","adlsc","income","ca","sex_male","race_asian","race_black","race_hispanic","race_other","race_white","dzgroup_ARF/MOSF w/Sepsis","dzgroup_CHF","dzgroup_COPD","dzgroup_Cirrhosis","dzgroup_Colon Cancer","dzgroup_Coma","dzgroup_Lung Cancer","dzgroup_MOSF w/Malig","diabetes","dementia","dnr_previo","missingindicator_wblc","missingindicator_pafi","missingindicator_ph","missingindicator_edu","missingindicator_income"]},"binario":{"coef":[-0.0665685,-0.00787082,0.0710898,-0.0402827,-0.0224306,0.0396784,-0.00308993,0.284037,-0.0539299,0.0114325,0.533341,0.662333,0.57042,0.180562,0.00960862,0.0338415,-0.0730816,-0.00830267,0.000530437,-0.028716,-0.00673864,0.151915,-0.0267625,0.100215,0.0350011,0.0232018,0.0409662,-0.10771,0.0476958,-0.0102868,0.0704212,-0.374143,-0.237867,0.0575951,-0.220394,0.409119,-0.000392368,0.289528,-0.0915955,-0.0498232,-0.0107805,-0.121536,-0.0414842,-0.0356219,0.21327,0.0246051],"intercepto":-0.395396,"pesos_clase":[0.674944,1.92903]},"ventana":{"coef":[[0.00529701,-0.0124729,0.029859,-0.0387923,-0.0330976,0.03036,-0.00689005,0.156931,-0.0274731,-0.0178858,0.388638,0.495128,0.294383,0.0344917,0.00447898,-0.00765834,0.0045719,-0.0262778,-0.013683,-0.0319103,-5.44055e-05,0.141768,-0.0407111,0.112749,0.0280718,-0.0128841,0.0161508,-0.075239,0.0470726,0.0186961,-0.144696,-0.243123,-0.173838,0.0740492,-0.114136,0.34067,0.174738,0.0801311,-0.121393,-0.0319922,0.136854,0.00992758,-0.0391509,-0.036518,0.189139,0.0741339],[-0.00397221,0.0339663,0.00704464,0.038692,-0.000368285,0.00212454,0.0259233,0.0739243,-0.000698969,0.0369908,0.0291969,0.0950741,-0.0642745,0.0695016,-0.0239102,0.0114661,0.0367475,0.027255,-0.0113167,0.0206971,0.00893328,0.0923115,-0.0227771,0.218198,0.00728135,0.0435464,0.0584921,0.0499158,-0.103493,-0.0357954,-0.0866268,0.00186932,0.0200662,0.0741191,0.0343735,-0.141539,0.177681,-0.0672784,0.0169022,0.000165085,-0.0020066,-0.0188048,0.0180988,-0.00753498,-0.116705,-0.0019753],[-0.00314877,-0.0111486,-0.0153599,-0.00308291,0.0268351,-0.0210194,-0.00497703,0.0413519,0.102715,-0.031608,-0.187449,-0.275199,0.00869314,-0.0213624,-0.0179627,0.0202231,-0.0801751,-0.0124818,-0.00341101,0.0617027,0.0196661,-0.065391,0.0265286,0.109425,0.0711955,-0.0379905,-0.0496942,-0.0220935,0.0837611,0.0260139,-0.0711725,0.100642,-0.0340734,-0.0207642,0.106097,-0.133563,-0.0337159,0.0865475,0.0968759,0.0736154,-0.0596656,0.0293465,0.0197402,0.0836034,-0.0752319,-0.108689],[0.00182398,-0.0103447,-0.0215438,0.00318318,0.00663081,-0.0114651,-0.0140563,-0.272207,-0.0745424,0.0125031,-0.230385,-0.315003,-0.238802,-0.0826309,0.037394,-0.0240309,0.0388557,0.0115046,0.0284107,-0.0504894,-0.028545,-0.168689,0.0369595,-0.440372,-0.106549,0.00732821,-0.0249487,0.0474168,-0.0273404,-0.00891454,0.302495,0.140612,0.187845,-0.127404,-0.0263344,-0.0655687,-0.318704,-0.0994002,0.00761491,-0.0417883,-0.0751816,-0.0204693,0.0013119,-0.0395504,0.00279745,0.0365309]],"intercepto":[-0.101779,0.172058,-0.0194517,-0.0508279],"pesos_clase":[0.908954,1.28065,2.96716,0.56118]},"medias_transformadas":[0.000289908,-0.00053706,-0.00058109,-0.000143798,0.00359843,0.000195679,-0.00231057,-0.000416346,-0.000503702,-0.000456881,-0.000632642,-0.00272624,-0.00313108,-0.0010697,-0.00114908,-0.00156159,-0.0013857,-0.00119938,-0.000454514,-0.00146857,0.00158733,-0.00201441,-0.00219925,0.000242521,0.561505,0.00878638,0.152526,0.0322625,0.0123558,0.794069,0.386052,0.152389,0.106123,0.0557386,0.0561505,0.065486,0.0998078,0.0782537,0.194399,0.0333608,0.0247117,0.0227897,0.253295,0.24849,0.179709,0.331274],"grupos_riesgo":{"cortes":[0.144287,0.248137,0.444688,0.695525],"nombres":["Muy bajo","Bajo","Medio","Alto","Muy alto"],"mortalidad_observada":[0.0191781,0.043956,0.153846,0.384615,0.695055],"pacientes":[365,364,364,364,364],"fallecimientos":[7,16,56,140,253]},"estadisticas":{"age":{"p1":22.2928,"p99":91.9699,"mediana":64.646,"p10":40.3076,"p90":81.2194},"num.co":{"p1":0.0,"p99":6.0,"mediana":2.0,"p10":0.0,"p90":4.0},"edu":{"p1":2.0,"p99":20.0,"mediana":12.0,"p10":8.0,"p90":16.0},"scoma":{"p1":0.0,"p99":100.0,"mediana":0.0,"p10":0.0,"p90":44.0},"sps":{"p1":7.5,"p99":58.611,"mediana":24.0,"p10":15.3984,"p90":37.5},"aps":{"p1":6.0,"p99":98.0,"mediana":35.0,"p10":15.0,"p90":65.0},"hday":{"p1":1.0,"p99":42.0,"mediana":1.0,"p10":1.0,"p90":12.0},"meanbp":{"p1":30.0,"p99":149.0,"mediana":77.5,"p10":53.0,"p90":121.0},"wblc":{"p1":0.181689,"p99":43.3639,"mediana":10.5996,"p10":4.69922,"p90":21.5},"hrt":{"p1":13.32,"p99":176.0,"mediana":100.0,"p10":60.0,"p90":135.0},"resp":{"p1":5.0,"p99":50.0,"mediana":24.0,"p10":10.0,"p90":36.0},"temp":{"p1":34.7969,"p99":39.8984,"mediana":36.6953,"p10":35.7969,"p90":38.7969},"pafi":{"p1":56.1781,"p99":552.62,"mediana":223.781,"p10":114.281,"p90":385.688},"alb":{"p1":1.2998,"p99":4.69922,"mediana":2.8999,"p10":2.0,"p90":4.0},"bili":{"p1":0.199982,"p99":30.42,"mediana":0.899902,"p10":0.299988,"p90":5.5},"crea":{"p1":0.399963,"p99":8.89844,"mediana":1.19995,"p10":0.699951,"p90":3.59961},"sod":{"p1":124.0,"p99":154.0,"mediana":137.0,"p10":130.0,"p90":145.0},"ph":{"p1":7.15918,"p99":7.5791,"mediana":7.41992,"p10":7.31934,"p90":7.5},"glucose":{"p1":55.03,"p99":473.82,"mediana":134.0,"p10":87.0,"p90":270.7},"bun":{"p1":4.0,"p99":124.0,"mediana":23.0,"p10":9.0,"p90":69.0},"urine":{"p1":0.0,"p99":6621.48,"mediana":1950.0,"p10":522.2,"p90":4140.0},"adlsc":{"p1":0.0,"p99":7.0,"mediana":1.0,"p10":0.0,"p90":5.0}},"modas":{"sex":"male","race":"white","dzgroup":"ARF/MOSF w/Sepsis","income":"under $11k","ca":"no"}};
+// Núcleo del modelo: reproduce el preprocesamiento y las dos regresiones logísticas del reporte.
+function transformar(pac, pr) {
+  const vacio = v => v === null || v === undefined || v === "" || (typeof v === "number" && isNaN(v));
+  return pr.columnas.map(col => {
+    for (const g of ["normales", "mediana"]) {
+      if (pr[g][col]) {
+        const s = pr[g][col], v = vacio(pac[col]) ? s.imputar : Number(pac[col]);
+        return (v - s.media) / s.escala;
+      }
+    }
+    if (pr.ordinales[col]) {
+      const s = pr.ordinales[col];
+      const v = vacio(pac[col]) ? s.imputar : s.categorias.indexOf(pac[col]);
+      return (v - s.media) / s.escala;
+    }
+    if (col.startsWith("missingindicator_")) return vacio(pac[col.slice(17)]) ? 1 : 0;
+    if (pr.binarias.includes(col)) return Number(pac[col]) ? 1 : 0;
+    const i = col.indexOf("_"), variable = col.slice(0, i), cat = col.slice(i + 1);
+    const v = vacio(pac[variable]) ? pr.nominales[variable].imputar : pac[variable];
+    return v === cat ? 1 : 0;
+  });
+}
+
+function predecir(pac, M) {
+  const xb = transformar(pac, M.preproc_binario);
+  const z = M.binario.intercepto + M.binario.coef.reduce((s, c, j) => s + c * xb[j], 0);
+  const pCruda = 1 / (1 + Math.exp(-z));
+  const [w0, w1] = M.binario.pesos_clase;
+  const momios = pCruda / (1 - pCruda) * w0 / w1;
+  const pHosp = momios / (1 + momios);
+
+  const xv = transformar(pac, M.preproc_ventana);
+  const zv = M.ventana.coef.map((fila, k) => M.ventana.intercepto[k] + fila.reduce((s, c, j) => s + c * xv[j], 0));
+  const zmax = Math.max(...zv);
+  const e = zv.map(v => Math.exp(v - zmax));
+  const se = e.reduce((a, b) => a + b, 0);
+  const crudas = e.map(v => v / se);
+  const q = crudas.map((p, k) => p / M.ventana.pesos_clase[k]);
+  const sq = q.reduce((a, b) => a + b, 0);
+  const ventanas = q.map(v => v / sq);
+
+  // Contribución de cada variable original frente al paciente promedio (log-momios del modelo binario)
+  const contrib = {};
+  M.preproc_binario.columnas.forEach((col, j) => {
+    let v = col;
+    if (col.startsWith("missingindicator_")) v = col.slice(17);
+    else if (!(col in M.preproc_binario.normales || col in M.preproc_binario.mediana ||
+               col in M.preproc_binario.ordinales || M.preproc_binario.binarias.includes(col))) v = col.slice(0, col.indexOf("_"));
+    contrib[v] = (contrib[v] || 0) + M.binario.coef[j] * (xb[j] - M.medias_transformadas[j]);
+  });
+
+  let grupo = M.grupos_riesgo.cortes.findIndex(c => pCruda <= c);
+  if (grupo === -1) grupo = M.grupos_riesgo.cortes.length;
+  return { pHosp, pCruda, ventanas, contrib, grupo };
+}
+
+// Día en que el riesgo acumulado alcanza 50 %, interpolando linealmente dentro de cada ventana.
+function diaMediano(ventanas) {
+  const puntos = [[0, 0], [30, ventanas[0]], [180, ventanas[0] + ventanas[1]], [365, ventanas[0] + ventanas[1] + ventanas[2]]];
+  for (let i = 1; i < puntos.length; i++) {
+    const [d0, c0] = puntos[i - 1], [d1, c1] = puntos[i];
+    if (c1 >= 0.5) return Math.round(d0 + (0.5 - c0) / (c1 - c0) * (d1 - d0));
+  }
+  return null;
+}
+
+
+
+</script>
+<script>
+const M = MODELO, E = M.estadisticas;
+const NOMBRES_DZ = {"ARF/MOSF w/Sepsis": "Falla respiratoria/orgánica con sepsis", "MOSF w/Malig": "Falla orgánica múltiple con cáncer",
+  "CHF": "Insuficiencia cardiaca", "COPD": "EPOC", "Cirrhosis": "Cirrosis", "Coma": "Coma", "Lung Cancer": "Cáncer de pulmón", "Colon Cancer": "Cáncer de colon"};
+
+const GRUPOS = [
+  {titulo: "Gravedad al día 3", destacado: true, nota: "Las tres variables con mayor peso en el modelo.", campos: [
+    {id: "sps", tipo: "deslizador", etiqueta: "Puntaje fisiológico SUPPORT", min: 0, max: 100, paso: 0.5, ayuda: "Mayor puntaje, mayor alteración fisiológica"},
+    {id: "aps", tipo: "deslizador", etiqueta: "Puntaje fisiológico APACHE III", min: 0, max: 150, paso: 1, ayuda: "Mayor puntaje, mayor gravedad"},
+    {id: "scoma", tipo: "deslizador", etiqueta: "Escala de coma SUPPORT", min: 0, max: 100, paso: 1, ayuda: "0 = alerta; 100 = coma profundo"},
+    {id: "adlsc", tipo: "num", etiqueta: "Dependencia en actividades diarias", unidad: "0 a 7", min: 0, max: 7, paso: 0.1},
+    {id: "hday", tipo: "num", etiqueta: "Día de hospitalización al ingresar al estudio", unidad: "día", min: 1, max: 150, paso: 1}]},
+  {titulo: "Paciente", campos: [
+    {id: "age", tipo: "num", etiqueta: "Edad", unidad: "años", min: 18, max: 105, paso: 1},
+    {id: "sex", tipo: "sel", etiqueta: "Sexo", opciones: [["female", "Mujer"], ["male", "Hombre"]]},
+    {id: "race", tipo: "sel", etiqueta: "Raza (registro del estudio)", opciones: [["white", "Blanca"], ["black", "Negra"], ["hispanic", "Hispana"], ["asian", "Asiática"], ["other", "Otra"]]},
+    {id: "edu", tipo: "num", etiqueta: "Escolaridad", unidad: "años", min: 0, max: 31, paso: 1, faltante: true},
+    {id: "income", tipo: "sel", etiqueta: "Ingreso anual del hogar", opciones: [["under $11k", "Menos de 11 mil USD"], ["$11-$25k", "11 a 25 mil USD"], ["$25-$50k", "25 a 50 mil USD"], [">$50k", "Más de 50 mil USD"], ["", "Sin registro"]]}]},
+  {titulo: "Enfermedad y comorbilidades", campos: [
+    {id: "dzgroup", tipo: "sel", etiqueta: "Grupo de enfermedad", ancho: true, opciones: Object.entries(NOMBRES_DZ)},
+    {id: "ca", tipo: "sel", etiqueta: "Cáncer", opciones: [["no", "No"], ["yes", "Sí, localizado"], ["metastatic", "Metastásico"]]},
+    {id: "num.co", tipo: "num", etiqueta: "Número de comorbilidades", unidad: "enfermedades", min: 0, max: 9, paso: 1},
+    {id: "diabetes", tipo: "si_no", etiqueta: "Diabetes"},
+    {id: "dementia", tipo: "si_no", etiqueta: "Demencia"},
+    {id: "dnr_previo", tipo: "si_no", etiqueta: "Orden de no reanimar previa al ingreso"}]},
+  {titulo: "Signos vitales al día 3", campos: [
+    {id: "meanbp", tipo: "num", etiqueta: "Presión arterial media", unidad: "mmHg", min: 0, max: 200, paso: 1},
+    {id: "hrt", tipo: "num", etiqueta: "Frecuencia cardiaca", unidad: "lpm", min: 0, max: 300, paso: 1},
+    {id: "resp", tipo: "num", etiqueta: "Frecuencia respiratoria", unidad: "rpm", min: 0, max: 90, paso: 1},
+    {id: "temp", tipo: "num", etiqueta: "Temperatura", unidad: "°C", min: 31, max: 42, paso: 0.1}]},
+  {titulo: "Laboratorio al día 3", nota: "Marca «Sin registro» si el estudio no se realizó. El modelo usa un valor normal de referencia o la mediana del estudio, y en leucocitos, PaO₂/FiO₂ y pH toma en cuenta que el dato falta.", campos: [
+    {id: "wblc", tipo: "num", etiqueta: "Leucocitos", unidad: "× 10³/µL", min: 0, max: 200, paso: 0.1, faltante: true},
+    {id: "pafi", tipo: "num", etiqueta: "PaO₂/FiO₂", unidad: "mmHg", min: 10, max: 900, paso: 1, faltante: true},
+    {id: "ph", tipo: "num", etiqueta: "pH arterial", unidad: "", min: 6.8, max: 7.8, paso: 0.01, faltante: true},
+    {id: "alb", tipo: "num", etiqueta: "Albúmina", unidad: "g/dL", min: 0.5, max: 6, paso: 0.1, faltante: true},
+    {id: "bili", tipo: "num", etiqueta: "Bilirrubina", unidad: "mg/dL", min: 0, max: 60, paso: 0.1, faltante: true},
+    {id: "crea", tipo: "num", etiqueta: "Creatinina", unidad: "mg/dL", min: 0, max: 20, paso: 0.1, faltante: true},
+    {id: "bun", tipo: "num", etiqueta: "Nitrógeno ureico", unidad: "mg/dL", min: 0, max: 300, paso: 1, faltante: true},
+    {id: "sod", tipo: "num", etiqueta: "Sodio", unidad: "mEq/L", min: 100, max: 190, paso: 1, faltante: true},
+    {id: "glucose", tipo: "num", etiqueta: "Glucosa", unidad: "mg/dL", min: 0, max: 1100, paso: 1, faltante: true},
+    {id: "urine", tipo: "num", etiqueta: "Gasto urinario", unidad: "mL/día", min: 0, max: 10000, paso: 10, faltante: true}]}
+];
+const ETIQUETAS = {dzgroup: "Grupo de enfermedad", income: "Ingreso", race: "Raza", sex: "Sexo", "num.co": "Comorbilidades", ca: "Cáncer"};
+GRUPOS.forEach(g => g.campos.forEach(c => { ETIQUETAS[c.id] = ETIQUETAS[c.id] || c.etiqueta; }));
+ETIQUETAS.sps = "Puntaje SUPPORT"; ETIQUETAS.aps = "Puntaje APACHE III"; ETIQUETAS.scoma = "Escala de coma";
+ETIQUETAS.adlsc = "Dependencia diaria"; ETIQUETAS.hday = "Día de ingreso al estudio"; ETIQUETAS.dnr_previo = "No reanimar previa";
+
+const med = id => E[id] ? E[id].mediana : null;
+const TIPICO = {sex: "male", race: "white", dzgroup: "ARF/MOSF w/Sepsis", income: "under $11k", ca: "no", diabetes: 0, dementia: 0, dnr_previo: 0};
+Object.keys(E).forEach(k => { TIPICO[k] = E[k].mediana; });
+const ESCENARIOS = {
+  "Paciente típico": {...TIPICO},
+  "Insuficiencia cardiaca estable": {...TIPICO, age: 74, sex: "female", dzgroup: "CHF", income: "$11-$25k", "num.co": 2, sps: 17, aps: 24, scoma: 0, adlsc: 1,
+    meanbp: 82, hrt: 92, resp: 20, temp: 36.6, crea: 1.4, bun: 30, alb: 3.4, wblc: 8.5, pafi: null, ph: null, glucose: 140, bili: 0.8, sod: 138, urine: null},
+  "Cáncer de pulmón metastásico": {...TIPICO, age: 63, dzgroup: "Lung Cancer", ca: "metastatic", sps: 26, aps: 33, scoma: 0, adlsc: 3, "num.co": 1, pafi: null, ph: null},
+  "Coma con falla orgánica": {...TIPICO, age: 67, dzgroup: "Coma", sps: 42, aps: 78, scoma: 89, adlsc: 2, hday: 3, meanbp: 65, hrt: 118, resp: 30, temp: 38.4,
+    crea: 2.3, bun: 45, alb: 2.4, wblc: 16, pafi: 170, ph: 7.33, glucose: 190, bili: 1.6, edu: null, income: ""}
+};
+
+const contenedor = document.getElementById("grupos");
+function crearCampo(c) {
+  const d = document.createElement("div");
+  d.className = "campo" + (c.ancho || c.tipo === "deslizador" ? " ancho" : "");
+  const id = "v_" + c.id.replace(".", "_");
+  if (c.tipo === "sel") {
+    d.innerHTML = `<label class="titulo" for="${id}">${c.etiqueta}</label><select id="${id}" data-var="${c.id}">` +
+      c.opciones.map(([v, t]) => `<option value="${v}">${t}</option>`).join("") + `</select>`;
+  } else if (c.tipo === "si_no") {
+    d.innerHTML = `<label class="titulo" for="${id}">${c.etiqueta}</label><select id="${id}" data-var="${c.id}"><option value="0">No</option><option value="1">Sí</option></select>`;
+  } else if (c.tipo === "deslizador") {
+    d.innerHTML = `<label class="titulo" for="${id}">${c.etiqueta}</label>
+      <div class="fila"><input type="range" id="${id}_r" min="${c.min}" max="${c.max}" step="${c.paso}" aria-label="${c.etiqueta}">
+      <input type="number" id="${id}" data-var="${c.id}" min="${c.min}" max="${c.max}" step="${c.paso}"></div>
+      <span class="ayuda">${c.ayuda}</span>`;
+  } else {
+    d.innerHTML = `<label class="titulo" for="${id}">${c.etiqueta}</label>
+      <div class="fila"><input type="number" id="${id}" data-var="${c.id}" min="${c.min}" max="${c.max}" step="${c.paso}">
+      <span class="unidad">${c.unidad || ""}</span>
+      ${c.faltante ? `<label class="chk"><input type="checkbox" id="${id}_f" data-falta="${c.id}">Sin registro</label>` : ""}</div>`;
+  }
+  return d;
+}
+GRUPOS.forEach(g => {
+  const b = document.createElement("div");
+  b.className = "bloque" + (g.destacado ? " destacado" : "");
+  b.innerHTML = `<h2>${g.titulo}</h2>` + (g.nota ? `<p class="nota">${g.nota}</p>` : "");
+  const campos = document.createElement("div");
+  campos.className = "campos";
+  g.campos.forEach(c => campos.appendChild(crearCampo(c)));
+  b.appendChild(campos);
+  contenedor.appendChild(b);
+});
+contenedor.style.display = "grid";
+contenedor.style.gap = "16px";
+
+function cargar(valores) {
+  document.querySelectorAll("[data-var]").forEach(el => {
+    const k = el.dataset.var, v = valores[k];
+    const falta = document.querySelector(`[data-falta="${k}"]`);
+    if (falta) { falta.checked = v === null; el.disabled = v === null; }
+    el.value = v === null ? (med(k) === null ? "" : +med(k).toFixed(2)) : (typeof v === "number" ? +v.toFixed(2) : v);
+    const r = document.getElementById(el.id + "_r");
+    if (r) r.value = el.value;
+  });
+}
+function leer() {
+  const p = {};
+  document.querySelectorAll("[data-var]").forEach(el => {
+    const k = el.dataset.var;
+    const falta = document.querySelector(`[data-falta="${k}"]`);
+    if (falta && falta.checked) { p[k] = null; return; }
+    if (el.tagName === "SELECT") {
+      p[k] = ["diabetes", "dementia", "dnr_previo"].includes(k) ? Number(el.value) : (el.value === "" ? null : el.value);
+    } else {
+      p[k] = el.value === "" ? null : Number(el.value);
+    }
+  });
+  return p;
+}
+
+const fmt = d => d.toLocaleDateString("es-MX", {day: "numeric", month: "short", year: "numeric"});
+const fmtCorta = d => d.toLocaleDateString("es-MX", {day: "numeric", month: "short"});
+const sumar = (fecha, dias) => new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate() + dias);
+const pct = (x, dec = 0) => (x * 100).toFixed(dec) + " %";
+function fechaBase() {
+  const v = document.getElementById("fechaIngreso").value;
+  if (!v) return new Date();
+  const [a, m, d] = v.split("-").map(Number);
+  return new Date(a, m - 1, d);
+}
+
+const COLORES = ["var(--r1)", "var(--r2)", "var(--r3)", "var(--r4)", "var(--r5)"];
+document.getElementById("escala").innerHTML = COLORES.map(c => `<span style="background:${c}"></span>`).join("");
+
+function dibujarCurva(v, dm, base) {
+  const W = 340, H = 168, L = 34, R = 12, T = 22, B = 30, dmax = 365;
+  const x = d => L + d / dmax * (W - L - R), y = p => T + (1 - p) * (H - T - B);
+  const pts = [[0, 0], [30, v[0]], [180, v[0] + v[1]], [365, v[0] + v[1] + v[2]]];
+  let s = "";
+  [0, 0.5, 1].forEach(p => { s += `<line class="${p === 0.5 ? "rejilla" : "eje"}" x1="${L}" x2="${W - R}" y1="${y(p)}" y2="${y(p)}"/><text x="${L - 6}" y="${y(p) + 3}" text-anchor="end">${p * 100} %</text>`; });
+  s += `<path class="area" d="M${x(0)},${y(0)} ${pts.map(([d, p]) => `L${x(d)},${y(p)}`).join(" ")} L${x(365)},${y(0)} Z"/>`;
+  s += `<path class="linea" d="${pts.map(([d, p], i) => `${i ? "L" : "M"}${x(d)},${y(p)}`).join(" ")}"/>`;
+  pts.slice(1).forEach(([d, p]) => { s += `<circle class="punto" cx="${x(d)}" cy="${y(p)}" r="3.5"/>`; });
+  [[0, "0"], [30, "30"], [180, "180"], [365, "365 días"]].forEach(([d, t]) => {
+    const a = d === 0 ? "start" : d === 365 ? "end" : "middle";
+    s += `<text x="${x(d)}" y="${H - 16}" text-anchor="${a}">${t}</text>`;
+    if (d !== 30) s += `<text x="${x(d)}" y="${H - 4}" text-anchor="${a}">${fmtCorta(sumar(base, d))}</text>`;
+  });
+  if (dm !== null) {
+    s += `<line class="marca" x1="${x(dm)}" x2="${x(dm)}" y1="${y(0)}" y2="${y(0.5)}"/><circle cx="${x(dm)}" cy="${y(0.5)}" r="4" fill="var(--r5)"/>`;
+  }
+  s += `<text class="fuerte" x="${L}" y="10">Riesgo acumulado de fallecer</text>`;
+  document.getElementById("curva").innerHTML = s;
+}
+
+function actualizar() {
+  const r = predecir(leer(), M), base = fechaBase(), v = r.ventanas;
+  document.getElementById("pHosp").innerHTML = (r.pHosp * 100).toFixed(1) + "<small> %</small>";
+  document.querySelectorAll("#escala span").forEach((s, i) => s.classList.toggle("activo", i === r.grupo));
+  const G = M.grupos_riesgo;
+  document.getElementById("grupoTexto").innerHTML = `Grupo de riesgo <strong>${G.nombres[r.grupo].toLowerCase()}</strong>. En el conjunto de prueba, de los ${G.pacientes[r.grupo]} pacientes de este grupo falleció el <strong>${pct(G.mortalidad_observada[r.grupo], 1)}</strong> durante la hospitalización.`;
+
+  const dm = diaMediano(v);
+  const nombres = ["Muerte en los primeros 30 días", "Muerte entre los días 31 y 180", "Muerte entre los días 181 y 365", "Sobrevive más de un año"];
+  const rangos = [[0, 30], [31, 180], [181, 365], [366, null]];
+  const kmax = v.indexOf(Math.max(...v));
+  const textoRango = k => rangos[k][1] === null ? `después del ${fmt(sumar(base, 365))}` : `${fmt(sumar(base, rangos[k][0]))} – ${fmt(sumar(base, rangos[k][1]))}`;
+  if (dm !== null) {
+    document.getElementById("fechaEtiqueta").textContent = "Fecha estimada de fallecimiento";
+    document.getElementById("fechaPrincipal").textContent = "Alrededor del " + fmt(sumar(base, dm));
+    document.getElementById("fechaSub").textContent = `Día ${dm} desde el ingreso, cuando el riesgo acumulado llega a 50 %. Ventana más probable: ${nombres[kmax].toLowerCase()} (${pct(v[kmax])}).`;
+  } else {
+    document.getElementById("fechaEtiqueta").textContent = "Fecha estimada de fallecimiento";
+    document.getElementById("fechaPrincipal").textContent = "Después del " + fmt(sumar(base, 365));
+    document.getElementById("fechaSub").textContent = `El riesgo acumulado a un año es de ${pct(1 - v[3])}, menor a 50 %. Probabilidad de sobrevivir más de un año: ${pct(v[3])}.`;
+  }
+  dibujarCurva(v, dm, base);
+  document.getElementById("tablaVentanas").innerHTML = v.map((p, k) =>
+    `<tr class="${k === kmax ? "max" : ""}"><td>${nombres[k]}<br><span class="fechas">${textoRango(k)}</span></td>
+     <td style="width:34%"><div class="barra"><i style="width:${(p * 100).toFixed(1)}%"></i></div></td><td class="pct">${pct(p)}</td></tr>`).join("");
+
+  const orden = Object.entries(r.contrib).filter(([, c]) => Math.abs(c) >= 0.02).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 7);
+  const maxc = Math.max(0.5, ...orden.map(([, c]) => Math.abs(c)));
+  document.getElementById("factores").innerHTML = orden.length ? orden.map(([k, c]) => {
+    const w = Math.abs(c) / maxc * 50, color = c > 0 ? "var(--r5)" : "var(--r1)";
+    return `<div class="factor"><span>${ETIQUETAS[k] || k}</span><div class="div"><i style="background:${color};left:${c > 0 ? 50 : 50 - w}%;width:${w}%"></i></div><span class="val">× ${Math.exp(c).toFixed(2)}</span></div>`;
+  }).join("") : `<p class="sub">Este paciente se parece al paciente promedio del estudio en todas las variables.</p>`;
+}
+
+const botones = document.getElementById("escenarios");
+Object.keys(ESCENARIOS).forEach((n, i) => {
+  const b = document.createElement("button");
+  b.type = "button"; b.textContent = n; b.setAttribute("aria-pressed", i === 2 ? "true" : "false");
+  b.addEventListener("click", () => {
+    botones.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+    cargar(ESCENARIOS[n]); actualizar();
+  });
+  botones.appendChild(b);
+});
+const form = document.getElementById("captura");
+form.addEventListener("input", e => {
+  const t = e.target;
+  if (t.dataset.falta) { const el = document.querySelector(`[data-var="${t.dataset.falta}"]`); el.disabled = t.checked; }
+  if (t.type === "range") { document.getElementById(t.id.slice(0, -2)).value = t.value; }
+  else if (t.dataset.var) { const r = document.getElementById(t.id + "_r"); if (r) r.value = t.value; }
+  if (t.id !== "fechaIngreso") botones.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", "false"));
+  actualizar();
+});
+form.addEventListener("submit", e => e.preventDefault());
+const hoy = new Date();
+document.getElementById("fechaIngreso").value = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+cargar(ESCENARIOS["Cáncer de pulmón metastásico"]);
+actualizar();
+</script>
+
+</body>
+</html>
